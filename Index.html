@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>电影票房动态分布</title>
+    <!-- 加载Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.18.2.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            font-family: "微软雅黑", sans-serif;
+        }
+        #map-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body>
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // 配置参数
+        const CONFIG = {
+            colorscale: [
+                [0.0, '#1a2c5b'],   // 深蓝
+                [0.3, '#3c6df0'],   // 标准蓝
+                [0.6, '#ffd166'],   // 橙
+                [1.0, '#ef476f']    // 红
+            ],
+            mapStyle: 'carto-darkmatter',
+            center: { lat: 35, lon: 105 },
+            zoom: 3.2
+        };
+
+        // 异步加载数据
+        Promise.all([
+            fetch('data/box_office.json').then(r => r.json()),
+            fetch('data/china_cities.geojson').then(r => r.json())
+        ]).then(([businessData, geoData]) => {
+            const processedData = processData(businessData);
+            createVisualization(processedData, geoData);
+        }).catch(error => {
+            console.error('数据加载失败:', error);
+            document.getElementById('map').innerHTML = 
+                '<p style="color:white">数据加载失败，请检查控制台信息</p>';
+        });
+
+        // 数据处理
+        function processData(rawData) {
+            const dateGroups = {};
+            rawData.forEach(item => {
+                if (!dateGroups[item.date]) {
+                    dateGroups[item.date] = [];
+                }
+                dateGroups[item.date].push({
+                    city: item.city,
+                    ratio: item.box_office_ratio,
+                    boxOffice: item.box_office
+                });
+            });
+            return Object.keys(dateGroups).map(date => ({
+                date,
+                data: dateGroups[date]
+            }));
+        }
+
+        // 创建可视化
+        function createVisualization(animationData, geoData) {
+            const frames = animationData.map(({ date, data }) => ({
+                name: date,
+                data: [{
+                    type: 'choroplethmapbox',
+                    geojson: geoData,
+                    locations: data.map(d => d.city),
+                    z: data.map(d => d.ratio),
+                    customdata: data.map(d => ({
+                        date: date,
+                        boxOffice: d.boxOffice
+                    })),
+                    colorscale: CONFIG.colorscale,
+                    zmin: 0,
+                    zmax: 1,
+                    marker: {
+                        opacity: 0.9,
+                        line: {
+                            width: 0.5,
+                            color: '#444'
+                        }
+                    },
+                    featureidkey: 'properties.name',
+                    hovertemplate: `
+                        <b>%{location}</b><br>
+                        日期: %{customdata.date}<br>
+                        票房占比: %{z:.1%}<br>
+                        当日票房: ￥%{customdata.boxOffice:,.0f}
+                        <extra></extra>
+                    `
+                }]
+            }));
+
+            const layout = {
+                title: {
+                    text: '<b>《哪吒2》电影票房分布</b>',
+                    font: { size: 24, color: 'white' },
+                    x: 0.05
+                },
+                mapbox: {
+                    style: CONFIG.mapStyle,
+                    center: CONFIG.center,
+                    zoom: CONFIG.zoom
+                },
+                margin: { t: 80, l: 0, r: 0, b: 0 },
+                coloraxis: {
+                    colorbar: {
+                        title: '票房占比',
+                        tickformat: '.0%',
+                        x: 0.85,
+                        y: 0.5,
+                        len: 0.6,
+                        tickfont: { color: 'white' },
+                        titlefont: { color: 'white' }
+                    }
+                },
+                updatemenus: [{
+                    type: 'buttons',
+                    x: 0.1,
+                    y: 0,
+                    buttons: [{
+                        method: 'animate',
+                        args: [
+                            null, 
+                            {
+                                frame: { duration: 1000, redraw: true },
+                                fromcurrent: true,
+                                transition: { duration: 500 }
+                            }
+                        ],
+                        label: '▶ 播放'
+                    }]
+                }],
+                sliders: [{
+                    currentvalue: {
+                        prefix: '日期: ',
+                        font: { color: 'white' }
+                    }
+                }]
+            };
+
+            Plotly.newPlot('map', frames[0].data, layout, {
+                mapboxAccessToken: ''  // 如果使用Mapbox服务需要token
+            }).then(gd => {
+                Plotly.addFrames(gd, frames);
+            });
+        }
+    </script>
+</body>
+</html>
